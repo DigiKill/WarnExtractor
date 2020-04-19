@@ -18,7 +18,7 @@ def createDataFile(file_date):
     target_path = (base_path / "./data" / file_name).resolve()
     with open(target_path, 'a+', newline='') as data_file:
         employee_writer = csv.writer(data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        employee_writer.writerow(['Date','Time','Records','Count'])
+        employee_writer.writerow(['Cycle','Pages','Date','Time','Records','Count'])
     data_file.close()
 
 def writeDataToFile(data_line, file_date):
@@ -63,3 +63,9 @@ def buildRow(td):
     link = td[5].find('a')
     row[5] = getDomain() + link['href']
     return row
+
+def secondsToMilli(sec):
+    return 1000*sec
+
+def minutesToMilli(min):
+    return secondsToMilli(60*min)

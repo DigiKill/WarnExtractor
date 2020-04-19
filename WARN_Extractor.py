@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+from apscheduler.schedulers.blocking import BlockingScheduler # https://apscheduler.readthedocs.io/en/stable/userguide.html
 import sched, time
 import requests
 import functools
@@ -7,24 +8,23 @@ import re
 import Warn_Utilities as w
 import tabulate as tab   # https://pypi.org/project/tabulate/
 
-def periodic(scheduler, interval, action, actionargs=()):
-    scheduler.enter(interval, 2, periodic,
-                    (scheduler, interval, action, actionargs))
-    action(*actionargs)
-
 def captureCurrent():
+    global POLL_ID
+    global PAGES_INDEXED
+    global MAX_PAGES
     master_row_list = []
     previous_row = []
+    POLL_ID += 1
     try:
-        for i in range(1,50):
-            req = requests.get(w.getPageUrl(w.getRootPageYear(2020),i), headers)
+        for i in range(1,MAX_PAGES):
+            req = requests.get(w.getPageUrl(w.getRootPageYear(SEARCH_YEAR),i), headers)
             req.raise_for_status()
             soup = BeautifulSoup(req.content, 'lxml')
 
             table = soup.find('tbody')
             table_rows = table.find_all('tr')
             if w.is_duplicate(table_rows, previous_row):
-                if debug: print("....End of Pages....\n")
+                if DEBUG: print("....End of Pages....\n")
                 raise requests.HTTPError
 
             for tr in table_rows:
@@ -34,27 +34,37 @@ def captureCurrent():
                 # displayRowDetails(row)
 
             previous_row = list(table_rows)
-            if debug: print(w.getPageUrl(w.getRootPageYear(2020),i))
+            PAGES_INDEXED = i
+            if DEBUG: print(w.getPageUrl(w.getRootPageYear(SEARCH_YEAR), i))
     except requests.exceptions.HTTPError:
         count = w.getTotalLayoffs(master_row_list)
         records = str(len(master_row_list))
-        # fnow = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         nowDate = w.timeFormat("%Y-%m-%d")
         nowTime = w.timeFormat("%H:%M:%S")
-        print("\nCollection Cycle Completed @ %s__%s" % (nowDate, nowTime))
-        print(tab.tabulate([['Records', records], ['Layoffs', f'{count:n}']], headers=['Metric', 'Value'], tablefmt='orgtbl'))
+        print("\nCollection Cycle %s Completed @ %s__%s" % (POLL_ID, nowDate, nowTime))
+        print(tab.tabulate([['Pages', PAGES_INDEXED], ['Records', records], ['Layoffs', f'{count:n}']], headers=['Metric', 'Value'], tablefmt='orgtbl'))
 
-        w.writeDataToFile([nowDate, nowTime, records, count], fileDate)
-    periodic(scheduler, 7000, captureCurrent)
+        w.writeDataToFile([POLL_ID, PAGES_INDEXED, nowDate, nowTime, records, count], FILE_DATE)
+        PAGES_INDEXED = 0
 
-debug = False
+DEBUG = False
+SEARCH_YEAR = '2020'
+SCAN_INTERVAL_MINUTES = 20
+POLL_ID = 0
+PAGES_INDEXED = 0
+MAX_PAGES = 50
+FILE_DATE = w.timeFormat("%Y%m%d_%H-%M-%S")
+
 locale.setlocale(locale.LC_ALL, '')  # Use '' for auto, or force e.g. to 'en_US.UTF-8'
-searchYear = '2020'
 headers = requests.utils.default_headers()
 headers.update({ 'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:52.0) Gecko/20100101 Firefox/52.0'})
-scheduler = sched.scheduler(time.time, time.sleep)
-fileDate = w.timeFormat("%Y%m%d_%H-%M-%S")
-w.createDataFile(fileDate)
 
-periodic(scheduler, 7000, captureCurrent)
+w.createDataFile(FILE_DATE)
+print("Scan Starting. Polling every %s minutes...\n" % (SCAN_INTERVAL_MINUTES))
+
+scheduler = BlockingScheduler()
+scheduler.add_job(captureCurrent, 'interval', minutes=SCAN_INTERVAL_MINUTES, max_instances=1)
+scheduler.start()
+
+
 
